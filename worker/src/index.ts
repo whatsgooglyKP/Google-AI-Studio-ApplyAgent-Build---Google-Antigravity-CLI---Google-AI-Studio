@@ -75,19 +75,39 @@ function linkedInSearchUrl(title: string, company: string): string {
   return `https://www.linkedin.com/jobs/search/?keywords=${encodeURIComponent(`${title} ${company}`.trim())}`;
 }
 
+// ---- Scope: entry-level and internship roles in the United States ----
+
+const DEFAULT_LOCATION = 'United States';
+// LinkedIn's experience filter still lets some senior roles through, so titles are checked too.
+const SENIOR_TITLE = /\b(senior|sr\.?|staff|lead|principal|manager|director|head|architect|vp|chief|distinguished|expert)\b|\b(ii|iii|iv)\b|\b(level|l)\s?[3-9]\b|\b[2-5]\b/i;
+const isEntryLevelTitle = (title: string) => !SENIOR_TITLE.test(title);
+// US locations look like "City, ST", "United States", or a remote label.
+const isUsLocation = (loc: string) =>
+  (/,\s*[A-Z]{2}\b/.test(loc) || /united states|\bUSA?\b|remote/i.test(loc)) && !/canada|mexico|india|united kingdom|\bUK\b|europe/i.test(loc);
+
 // ---- LinkedIn guest endpoint (same parsing as fetchRealLinkedInGuestJobs in server.ts) ----
 
 async function fetchLinkedInJobs(topic: string, location: string): Promise<Job[]> {
-  const params = new URLSearchParams({ keywords: topic, start: '0' });
-  if (location) params.set('location', location);
-  const res = await fetch(`https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?${params}`, {
-    headers: BROWSER_HEADERS,
-    redirect: 'manual', // a redirect here means a login wall
-  });
-  if (!res.ok) throw new Error(`LinkedIn HTTP ${res.status}`);
-  const html = await res.text();
-
   const jobs: Job[] = [];
+  // Each page has about 10 cards; after dropping senior titles, read up to 3 pages to fill the list.
+  for (const start of [0, 10, 20]) {
+    const params = new URLSearchParams({ keywords: topic, location, f_E: '1,2', start: String(start) }); // f_E 1=Internship, 2=Entry level
+    const res = await fetch(`https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?${params}`, {
+      headers: BROWSER_HEADERS,
+      redirect: 'manual', // a redirect here means a login wall
+    });
+    if (!res.ok) {
+      if (start === 0) throw new Error(`LinkedIn HTTP ${res.status}`);
+      break;
+    }
+    const before = jobs.length;
+    parseLinkedInCards(await res.text(), jobs);
+    if (jobs.length >= 15 || jobs.length === before) break;
+  }
+  return jobs;
+}
+
+function parseLinkedInCards(html: string, jobs: Job[]) {
   const cardRegex = /<li[^>]*>([\s\S]*?)<\/li>/gi;
   let m: RegExpExecArray | null;
   while ((m = cardRegex.exec(html)) !== null && jobs.length < 25) {
@@ -99,7 +119,7 @@ async function fetchLinkedInJobs(topic: string, location: string): Promise<Job[]
     );
     const loc = stripTags(card.match(/<span[^>]*job-search-card__location[^>]*>([\s\S]*?)<\/span>/i)?.[1] || '');
     const posted = stripTags(card.match(/<time[^>]*>([\s\S]*?)<\/time>/i)?.[1] || '');
-    if (!title || !company || !id || jobs.some((j) => j.id === `li-${id}`)) continue;
+    if (!title || !company || !id || !isEntryLevelTitle(title) || jobs.some((j) => j.id === `li-${id}`)) continue;
     jobs.push({
       id: `li-${id}`,
       title,
@@ -110,7 +130,6 @@ async function fetchLinkedInJobs(topic: string, location: string): Promise<Job[]
       source: 'linkedin',
     });
   }
-  return jobs;
 }
 
 async function fetchLinkedInDescription(numericId: string): Promise<string> {
@@ -127,9 +146,14 @@ async function fetchLinkedInDescription(numericId: string): Promise<string> {
 
 // ---- Keyless fallback feeds. Both ask to be credited with a link back. ----
 
+// True when the title contains the query's main words ("intern", "machine", "software"...); generic words don't count alone.
+const GENERIC_WORDS = new Set(['engineer', 'developer', 'and', 'the']);
 function titleMatches(topic: string, title: string): boolean {
-  const words = topic.toLowerCase().split(/\s+/).filter((w) => w.length > 2);
-  return words.some((w) => title.toLowerCase().includes(w));
+  const words = topic.toLowerCase().split(/[\s/]+/).filter((w) => w.length > 1);
+  const key = words.filter((w) => !GENERIC_WORDS.has(w));
+  const t = title.toLowerCase();
+  const has = (w: string) => new RegExp(`\\b${w.replace(/[^a-z0-9]/g, '')}`).test(t);
+  return (key.length ? key : words).every((w) => w === 'ai' || w === 'ml' ? /\b(ai|ml|machine learning|artificial intelligence)\b/.test(t) : has(w));
 }
 
 async function fetchRemotiveJobs(topic: string): Promise<Job[]> {
@@ -137,7 +161,11 @@ async function fetchRemotiveJobs(topic: string): Promise<Job[]> {
   const res = await fetch(`https://remotive.com/api/remote-jobs?search=${encodeURIComponent(topic)}`, { headers: { 'User-Agent': BROWSER_HEADERS['User-Agent'] } });
   if (!res.ok) throw new Error(`Remotive HTTP ${res.status}`);
   const data: any = await res.json();
-  return (data.jobs || []).filter((j: any) => titleMatches(topic, String(j.title || ''))).slice(0, 20).map((j: any): Job => ({
+  return (data.jobs || [])
+    .filter((j: any) => titleMatches(topic, String(j.title || '')) && isEntryLevelTitle(String(j.title || '')))
+    .filter((j: any) => !/trainer|annotat|evaluator|freelance/i.test(String(j.title || ''))) // gig work, not entry-level jobs
+    .filter((j: any) => /usa|united states|americas|worldwide|anywhere/i.test(String(j.candidate_required_location || '')))
+    .slice(0, 20).map((j: any): Job => ({
     id: `rm-${j.id}`,
     title: String(j.title || ''),
     company: String(j.company_name || ''),
@@ -150,21 +178,24 @@ async function fetchRemotiveJobs(topic: string): Promise<Job[]> {
   }));
 }
 
-// The Muse has no free-text search, so map the query to its closest category and filter by title words.
-const MUSE_CATEGORIES: [RegExp, string][] = [
-  [/data|analyst|analytics|bi\b|intelligence|scien/i, 'Data and Analytics'],
-  [/engineer|developer|software|ai\b|ml\b|machine|agent/i, 'Software Engineering'],
-  [/product/i, 'Product Management'],
-  [/design|ux|ui\b/i, 'Design and UX'],
-  [/market/i, 'Marketing'],
-  [/hr\b|people|recruit|talent/i, 'Human Resources and Recruitment'],
-];
-async function fetchMuseJobs(topic: string): Promise<Job[]> {
-  const category = MUSE_CATEGORIES.find(([re]) => re.test(topic))?.[1] || 'Data and Analytics';
-  const res = await fetch(`https://www.themuse.com/api/public/jobs?page=0&category=${encodeURIComponent(category)}`, { headers: { 'User-Agent': BROWSER_HEADERS['User-Agent'] } });
+// The Muse has no free-text search, so use its engineering and data science categories at Entry Level and
+// Internship, then filter by title words and US locations.
+async function fetchMusePage(topic: string, page: number): Promise<any[]> {
+  const params = new URLSearchParams({ page: String(page) });
+  ['Software Engineering', 'Data Science'].forEach((c) => params.append('category', c));
+  (/\bintern/i.test(topic) ? ['Internship'] : ['Entry Level', 'Internship']).forEach((l) => params.append('level', l));
+  const res = await fetch(`https://www.themuse.com/api/public/jobs?${params}`, { headers: { 'User-Agent': BROWSER_HEADERS['User-Agent'] } });
   if (!res.ok) throw new Error(`The Muse HTTP ${res.status}`);
   const data: any = await res.json();
-  const all: Job[] =(data.results || []).map((j: any): Job => ({
+  return data.results || [];
+}
+
+async function fetchMuseJobs(topic: string): Promise<Job[]> {
+  // 20 jobs per page and no text search, so read a few pages to find title matches.
+  const pages = await Promise.allSettled([0, 1, 2, 3, 4].map((p) => fetchMusePage(topic, p)));
+  const raw = pages.flatMap((p) => (p.status === 'fulfilled' ? p.value : []));
+  if (!raw.length && pages[0].status === 'rejected') throw pages[0].reason;
+  const all: Job[] = raw.map((j: any): Job => ({
     id: `muse-${j.id}`,
     title: String(j.name || ''),
     company: String(j.company?.name || ''),
@@ -175,13 +206,15 @@ async function fetchMuseJobs(topic: string): Promise<Job[]> {
     sourceUrl: j.refs?.landing_page,
     description: htmlToText(String(j.contents || '')).slice(0, 6000),
   }));
-  // Every result is already in the right category; prefer title matches but keep the category list if none match.
-  const relevant = all.filter((j) => titleMatches(topic, j.title));
-  return (relevant.length ? relevant : all).slice(0, 20);
+  const seen = new Set<string>();
+  return all
+    .filter((j) => !seen.has(j.id) && !!seen.add(j.id) && titleMatches(topic, j.title) && isUsLocation(j.location))
+    .slice(0, 20);
 }
 
-async function searchJobs(query: string, location: string) {
+async function searchJobs(query: string, loc: string) {
   const topic = cleanJobTitle(query);
+  const location = loc.trim() || DEFAULT_LOCATION;
   const notes: string[] = [];
   try {
     const li = await cached(`li:${topic}|${location}`, 60 * 60 * 1000, () => fetchLinkedInJobs(topic, location));
@@ -241,7 +274,8 @@ async function tailor(env: Env, job: any, resume: string) {
     'You are a resume tailoring assistant. Respond with one JSON object only, no markdown. ' +
     'Schema: {"score": integer 0-100, "matched": string[], "missing": string[], "bullets": string[3], "cover": string}. ' +
     'First identify the 6-8 most important skills the job asks for. "matched" lists those the resume shows, "missing" lists the rest. ' +
-    '"score" reflects how well the resume fits the job. "bullets" are exactly three resume bullets rewritten from the resume for this job, ' +
+    '"score" reflects how well the resume fits the job. These are entry-level and internship roles, so weigh skills, projects and ' +
+    'coursework rather than years of experience. "bullets" are exactly three resume bullets rewritten from the resume for this job, ' +
     'each under 35 words, never inventing employers, titles, or numbers. "cover" is a cover letter under 140 words signed with the name at the top of the resume.';
   const skills = Array.isArray(job.skills) && job.skills.length ? `\nListed skills: ${job.skills.join(', ')}` : '';
   const user =

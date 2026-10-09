@@ -74,15 +74,24 @@
 <div class="wrap">
   <header>
     <h1>Apply Agent</h1>
-    <p>Search live jobs, paste a resume, and tailor it: match score, skill gaps, rewritten bullets, and a short cover letter.</p>
+    <p>Find entry-level and internship roles across the United States, paste a resume, and tailor it: match score, skill gaps, rewritten bullets, and a short cover letter.</p>
   </header>
 
   <form class="card search" id="searchForm">
     <div class="search-row">
-      <div class="grow"><label for="q">Job title</label><input id="q" type="text" value="Data Analyst" autocomplete="off"></div>
-      <div class="grow"><label for="loc">Location (optional)</label><input id="loc" type="text" placeholder="e.g. Orlando, FL or Remote" autocomplete="off"></div>
+      <div class="grow"><label for="q">Role</label>
+        <select id="q">
+          <option value="all">All four roles</option>
+          <option>Software Engineer</option>
+          <option>Software Developer</option>
+          <option>AI/ML Intern</option>
+          <option>Machine Learning Intern</option>
+        </select>
+      </div>
+      <div class="grow"><label for="loc">Location</label><input id="loc" type="text" value="United States" placeholder="United States, or a state or city" autocomplete="off"></div>
       <button id="searchBtn" type="submit">Search live jobs</button>
     </div>
+    <div class="note">Internship and entry-level only. Senior, staff, lead and level II+ titles are filtered out.</div>
     <div class="status" id="searchStatus" role="status" aria-live="polite"></div>
     <div class="jobs" id="jobs"></div>
   </form>
@@ -133,37 +142,33 @@
 (function () {
   'use strict';
 
-  // Sample roles, shaped like JobListing in src/types.ts. Companies are fictional.
+  var ROLE_TITLES = ['Software Engineer', 'Software Developer', 'AI/ML Intern', 'Machine Learning Intern'];
+
+  // Offline sample roles (entry-level, US), shaped like JobListing in src/types.ts. Companies are fictional.
   var JOBS = [
     {
-      id: 'ai-agent-eng', title: 'AI Agent Engineer', company: 'Northwind Labs', department: 'AI & ML',
-      location: 'Remote (US)', type: 'Remote',
-      requirements: ['Building LLM-powered agents with tool use and subagent orchestration', 'Shipping prototypes to production on a cloud platform', 'Explaining agent behavior to non-technical stakeholders'],
-      skills: ['AI Agentic Engineering', 'Python', 'Google Cloud Platform', 'Prompt Engineering', 'SQL', 'Communication']
-    },
-    {
-      id: 'hr-analytics', title: 'People Analytics Analyst', company: 'Brightline Health', department: 'Data Science',
-      location: 'Orlando, FL', type: 'Hybrid',
-      requirements: ['Owning HR dashboards end to end, from pipeline to KPI', 'Keeping confidential workforce data secure', 'Automating recurring reports'],
-      skills: ['Power BI', 'SQL', 'DAX', 'Power Automate', 'Data Storytelling', 'Excel']
-    },
-    {
-      id: 'data-eng', title: 'Data Engineer, Lakehouse', company: 'Cobalt Freight', department: 'Engineering',
+      id: 'swe-new-grad', title: 'Software Engineer, New Grad', company: 'Northwind Labs', department: 'Engineering',
       location: 'Austin, TX', type: 'Full-time',
-      requirements: ['Migrating spreadsheet-based processes to a lakehouse', 'Writing reliable, tested SQL transformations', 'Monitoring data quality and match rates'],
-      skills: ['Azure Databricks', 'SQL', 'Python', 'Spark', 'Data Quality', 'Airflow']
+      requirements: ['Building and testing backend services with a senior mentor', 'Writing clear SQL and Python for internal tools', 'Explaining tradeoffs in code reviews'],
+      skills: ['Python', 'SQL', 'Git', 'APIs', 'Google Cloud Platform', 'Communication']
     },
     {
-      id: 'ai-pm', title: 'Product Manager, AI Copilots', company: 'Lumen Workspace', department: 'Product',
-      location: 'Seattle, WA', type: 'Hybrid',
-      requirements: ['Defining copilot features from real user workflows', 'Running experiments and reading the metrics', 'Presenting roadmaps to leadership'],
-      skills: ['Microsoft Copilot', 'Strategy', 'Presentation Skills', 'Data Storytelling', 'A/B Testing', 'Roadmapping']
+      id: 'swe-dev-1', title: 'Software Developer I', company: 'Harbor Mutual', department: 'Engineering',
+      location: 'Charlotte, NC', type: 'Hybrid',
+      requirements: ['Automating manual business workflows', 'Building internal dashboards and reporting apps', 'Working with analysts to turn requirements into features'],
+      skills: ['JavaScript', 'SQL', 'Power Automate', 'Power BI', 'Git', 'Agile']
     },
     {
-      id: 'bi-dev', title: 'Business Intelligence Developer', company: 'Harbor Mutual', department: 'Data Science',
-      location: 'Charlotte, NC', type: 'Full-time',
-      requirements: ['Building executive Power BI reports', 'Modeling data with star schemas', 'Partnering with finance on KPI definitions'],
-      skills: ['Power BI', 'SQL', 'DAX', 'Data Modeling', 'Tableau', 'Stakeholder Management']
+      id: 'ai-ml-intern', title: 'AI/ML Intern, Summer', company: 'Lumen Workspace', department: 'AI & ML',
+      location: 'Remote (US)', type: 'Remote',
+      requirements: ['Prototyping LLM agents with tool use and subagent orchestration', 'Evaluating prompts and model outputs', 'Presenting results to the product team'],
+      skills: ['AI Agentic Engineering', 'Python', 'Prompt Engineering', 'LLM', 'Google AI Studio', 'Presentation Skills']
+    },
+    {
+      id: 'ml-intern', title: 'Machine Learning Intern', company: 'Brightline Health', department: 'AI & ML',
+      location: 'Orlando, FL', type: 'Full-time',
+      requirements: ['Cleaning and modeling healthcare workforce data', 'Training and evaluating baseline ML models', 'Sharing findings with clear visualizations'],
+      skills: ['Python', 'Machine Learning', 'SQL', 'Azure Databricks', 'Statistics', 'Data Storytelling']
     }
   ];
 
@@ -206,7 +211,13 @@
     'AI Agents', 'Agentic', 'Copilot', 'JavaScript', 'TypeScript', 'React', 'Node.js', 'Java', 'C#', 'Golang', 'Kubernetes', 'Docker', 'Git',
     'A/B Testing', 'Experimentation', 'Product Management', 'Roadmapping', 'Agile', 'Scrum', 'Jira', 'Stakeholder Management',
     'Communication', 'Presentation Skills', 'Strategy', 'Project Management', 'Lean Six Sigma', 'Salesforce', 'Workday', 'HRIS',
-    'People Analytics', 'Financial Modeling', 'Forecasting', 'KPI', 'Dashboards', 'Automation', 'APIs'];
+    'People Analytics', 'Financial Modeling', 'Forecasting', 'KPI', 'Dashboards', 'Automation', 'APIs',
+    // Software engineering and ML terms for the entry-level SWE / AI-ML intern scope
+    'C++', 'Rust', 'Scala', 'Kotlin', 'Swift', 'Linux', 'Bash', 'Scripting', 'GitHub', 'GitLab', 'CI/CD', 'REST', 'GraphQL',
+    'Microservices', 'Distributed Systems', 'Object Oriented', 'Data Structures', 'Algorithms', 'Debugging', 'Unit Testing', 'Testing',
+    'Computer Science', 'Cloud', 'AWS Lambda', 'PostgreSQL', 'MySQL', 'MongoDB', 'NoSQL', 'HTML', 'CSS', 'Angular', 'Vue', 'Django',
+    'Flask', 'FastAPI', 'Spring Boot', 'PyTorch', 'TensorFlow', 'scikit-learn', 'Pandas', 'NumPy', 'Jupyter', 'NLP',
+    'Computer Vision', 'Reinforcement Learning', 'Transformers', 'Hugging Face', 'RAG', 'MLOps', 'Model Evaluation', 'Data Analysis'];
 
   var $ = function (id) { return document.getElementById(id); };
   var jobSel = $('job'), resumeEl = $('resume'), tailorBtn = $('tailor'), statusEl = $('status');
@@ -306,16 +317,24 @@
 
   $('searchForm').addEventListener('submit', function (ev) {
     ev.preventDefault();
-    var q = $('q').value.trim(), loc = $('loc').value.trim(), st = $('searchStatus'), box = $('jobs');
-    if (!q) { st.textContent = 'Enter a job title.'; return; }
+    var q = $('q').value, loc = $('loc').value.trim() || 'United States', st = $('searchStatus'), box = $('jobs');
     if (!API_BASE) { st.textContent = 'Live search runs on the deployed site. The sample roles below still work here.'; return; }
+    var titles = q === 'all' ? ROLE_TITLES : [q];
     $('searchBtn').disabled = true;
     st.textContent = ''; st.appendChild(el('span', 'spin')); st.appendChild(document.createTextNode('Searching live listings…'));
     box.textContent = '';
-    getJson(API_BASE + '/jobs?q=' + encodeURIComponent(q) + (loc ? '&loc=' + encodeURIComponent(loc) : '')).then(function (data) {
-      var jobs = Array.isArray(data.jobs) ? data.jobs : [];
-      if (!jobs.length) { st.textContent = 'No live listings found. Try another title, or use a sample role below.'; return; }
-      st.textContent = jobs.length + ' live listings from ' + (data.source === 'linkedin' ? 'LinkedIn' : 'Remotive and The Muse (LinkedIn was unavailable)') + '. Pick one to tailor.';
+    // One request per title; "All four roles" merges them, newest LinkedIn order kept within each title.
+    Promise.all(titles.map(function (t) {
+      return getJson(API_BASE + '/jobs?q=' + encodeURIComponent(t) + '&loc=' + encodeURIComponent(loc)).catch(function () { return null; });
+    })).then(function (results) {
+      var ok = results.filter(Boolean);
+      if (!ok.length) throw new Error('all searches failed');
+      var jobs = [], seen = {}, fromLinkedIn = ok.some(function (r) { return r.source === 'linkedin'; });
+      ok.forEach(function (r) {
+        (Array.isArray(r.jobs) ? r.jobs : []).forEach(function (j) { if (!seen[j.id]) { seen[j.id] = 1; jobs.push(j); } });
+      });
+      if (!jobs.length) { st.textContent = 'No entry-level listings found for that location. Try "United States" or a sample role below.'; return; }
+      st.textContent = jobs.length + ' entry-level listings from ' + (fromLinkedIn ? 'LinkedIn' : 'Remotive and The Muse (LinkedIn was unavailable)') + '. Pick one to tailor.';
       jobs.forEach(function (j) {
         j.live = true;
         liveJobs[j.id] = j;
@@ -392,7 +411,8 @@
     while (originals.length < 3) originals.push(defaults[originals.length]);
 
     var bullets = originals.map(function (orig, idx) {
-      var target = matched[idx % Math.max(1, matched.length)] || job.skills[0] || 'analytical workflows';
+      // Only name skills the resume actually shows; never claim a missing one.
+      var target = matched[idx % Math.max(1, matched.length)] || 'strong engineering fundamentals';
       var b = orig.replace(/\.\s*$/, '');
       // Bullets that already open with a past-tense verb keep it; others get one.
       if (!/^\w+ed\b|^(led|built|ran|drove|won|made|grew|wrote|took|cut)\b/i.test(b)) {
@@ -401,7 +421,7 @@
       if (!/\d+(\.\d+)?%/.test(b)) {
         return b + ', applying ' + target + ' to raise output quality and reporting efficiency.';
       }
-      return b + ', the kind of ' + target + ' impact this role calls for.';
+      return b + ', directly relevant to this role\'s need for ' + target + '.';
     });
 
     var nameLine = (resumeText.split('\n').map(function (l) { return l.trim(); }).filter(Boolean)[0] || 'Applicant');

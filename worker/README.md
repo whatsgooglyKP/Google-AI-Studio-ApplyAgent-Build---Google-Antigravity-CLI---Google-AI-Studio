@@ -4,9 +4,22 @@ This Worker serves `../demo/index.html` and three small endpoints:
 
 | Route | What it does |
 | --- | --- |
-| `GET /api/jobs?q=<title>&loc=<location>` | Live listings from LinkedIn's public guest job search (one page, cached ~1 hour). If LinkedIn fails, falls back to Remotive and The Muse. |
+| `GET /api/jobs?q=<title>&loc=<location>` | Entry-level and internship listings from LinkedIn's public guest job search (up to 3 pages, cached ~1 hour). If LinkedIn fails, falls back to Remotive and The Muse. |
 | `GET /api/job/li-<id>` | Full description of one LinkedIn job. |
 | `POST /api/tailor` | `{job, resume}` → `{score, matched, missing, bullets, cover}` from Llama 3.1 on Workers AI. |
+
+## Search scope
+
+The search is limited to **internship and entry-level roles in the United States**:
+
+- The page offers four roles: Software Engineer, Software Developer, AI/ML Intern and Machine Learning Intern. "All four roles" runs all of them and merges the results.
+- Location defaults to `United States`. You can narrow it to a state or city.
+- LinkedIn is queried with its experience filter `f_E=1,2` (Internship, Entry level). Titles containing senior, staff, lead, principal, manager, II, III or levels 2–5 are dropped, because LinkedIn's filter lets some through.
+- The Muse is queried at its Entry Level and Internship levels, in the Software Engineering and Data Science categories, and kept only for US locations. Remotive results are kept only when open to US applicants.
+
+To change the roles, edit `ROLE_TITLES` in `demo/index.html`. To change the seniority rules, edit `SENIOR_TITLE` in `src/index.ts`.
+
+## Keys
 
 There is no API key anywhere. Workers AI is reached through the `AI` binding in `wrangler.toml`.
 If the AI fails or the daily free allowance runs out, the page uses its local skill-overlap simulator and labels the result "local fallback".
