@@ -1,2 +1,4 @@
 # AI-Agents-Intensive-Vibe-Coding-Capstone-Project
 Google Antigravity CLI agent automating job searches to empower job seekers. Built as a life-changing passion project during the Google x Kaggle 5-Day Course, this AI prototype scrapes listings and tailors resumes to drive economic mobility and equitable career access.
+
+In the live demo (`demo/index.html`, served by `worker/`), the resume is the user's own input: it is saved only in their browser (localStorage) and restored on refresh, and the sample resume appears only on a first visit or when "Load sample" is clicked. The match score is the cosine similarity between embeddings of the resume and the job description (Workers AI `bge-base-en-v1.5`, no API key); when embeddings are unavailable, the score falls back to token overlap and is labelled as such.

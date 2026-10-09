@@ -112,9 +112,12 @@
       <textarea id="resume" spellcheck="false"></textarea>
       <div class="row">
         <button id="tailor" type="button">Tailor</button>
+        <button id="saveResume" type="button" class="ghost">Save resume</button>
+        <button id="clearResume" type="button" class="ghost">Clear</button>
         <button id="reset" type="button" class="ghost">Load sample</button>
         <span class="status" id="status" role="status" aria-live="polite"></span>
       </div>
+      <div class="note" id="resumeNote" aria-live="polite"></div>
     </div>
   </div>
 
@@ -125,6 +128,7 @@
       <div class="bar"><i id="scoreBar"></i></div>
       <span class="badge" id="source"></span>
     </div>
+    <div class="note" id="scoreKind"></div>
     <div class="note" id="sourceNote"></div>
     <h2>Matched skills</h2>
     <div class="chips" id="matched"></div>
@@ -234,7 +238,22 @@
     o.textContent = j.title + ' · ' + j.company + ' (sample)';
     jobSel.appendChild(o);
   });
-  resumeEl.value = SAMPLE_RESUME;
+
+  // ---- The resume is the user's input, saved in this browser ----
+
+  var RESUME_KEY = 'applyagent.resume.v1';
+  function loadSavedResume() { try { return localStorage.getItem(RESUME_KEY); } catch (e) { return null; } }
+  function saveResume() { try { localStorage.setItem(RESUME_KEY, resumeEl.value); return true; } catch (e) { return false; } }
+  function resumeNote(msg) { $('resumeNote').textContent = msg; }
+
+  // First visit only: no saved resume yet, so start from the sample. After that the textarea is the user's.
+  var savedResume = loadSavedResume();
+  resumeEl.value = savedResume !== null ? savedResume : SAMPLE_RESUME;
+  resumeNote(savedResume !== null ? 'Loaded your saved resume from this browser.' : 'Showing a sample resume. Paste yours; it saves in this browser as you type.');
+
+  resumeEl.addEventListener('input', function () {
+    resumeNote(saveResume() ? 'Saved in this browser.' : 'Could not save (browser storage is blocked); your edits last until you leave the page.');
+  });
 
   function currentJob() {
     if (liveJobs[jobSel.value]) return liveJobs[jobSel.value];
@@ -370,21 +389,79 @@
     return out;
   }
 
+  // A job skill counts as shown when it appears as whole words anywhere in the current resume text.
   function hasSkill(jobSkill, userSkills, resumeText) {
-    var js = norm(jobSkill);
-    var hit = userSkills.some(function (u) { var us = norm(u); return us && (us.indexOf(js) !== -1 || js.indexOf(us) !== -1); });
-    // Pasted resumes may not have a clean SKILLS section, so also scan the full text.
-    return hit || norm(resumeText).indexOf(js) !== -1;
+    var js = norm(jobSkill), text = ' ' + norm(resumeText) + ' ';
+    return !!js && text.indexOf(' ' + js + ' ') !== -1;
   }
 
-  // Live jobs have only a description, so build a skills list from it (dictionary hits plus resume skills it mentions).
+  // Plain text describing the job, used for skills and for the match score.
+  function jobText(job) {
+    return job.live
+      ? job.title + '\n' + (job.description || '')
+      : job.title + '\n' + job.requirements.join('\n') + '\nSkills: ' + job.skills.join(', ');
+  }
+
+  // Skills the job asks for: listed skills (sample roles), dictionary hits in the job text, and resume skills it mentions.
   function jobSkills(job, userSkills) {
-    if (!job.live) return job.skills;
-    var desc = norm(job.description || '');
-    var fromResume = userSkills.filter(function (u) { var n = norm(u); return n.length > 2 && desc.indexOf(n) !== -1; });
-    var all = skillsInText(job.description || '').concat(fromResume), out = [];
+    var desc = ' ' + norm(jobText(job)) + ' ';
+    var fromResume = userSkills.filter(function (u) { var n = norm(u); return n.length > 2 && desc.indexOf(' ' + n + ' ') !== -1; });
+    var all = (job.skills || []).concat(skillsInText(jobText(job)), fromResume), out = [];
     all.forEach(function (s) { if (!out.some(function (o) { return norm(o) === norm(s); })) out.push(s); });
-    return out.length ? out.slice(0, 10) : [cleanTitle(job.title)];
+    // Drop a skill that is part of a longer one already listed ("Azure" when "Azure Databricks" is there).
+    out = out.filter(function (s) {
+      return !out.some(function (o) { return o !== s && (' ' + norm(o) + ' ').indexOf(' ' + norm(s) + ' ') !== -1; });
+    });
+    return out.length ? out.slice(0, 12) : [cleanTitle(job.title)];
+  }
+
+  // ---- Match score: cosine similarity of embeddings, or token overlap when embeddings are unavailable ----
+
+  var STOPWORDS = ('a an and are as at be by for from has have in is it its of on or our that the their this to we will with you your ' +
+    'experience work working team role ability strong skills including such using use able across within new job').split(' ');
+  function tokens(text) {
+    var seen = {};
+    norm(text).split(/[\s/]+/).forEach(function (t) {
+      if (t.length > 2 && STOPWORDS.indexOf(t) === -1 && !/^\d+$/.test(t)) seen[t] = 1;
+    });
+    return Object.keys(seen);
+  }
+
+  function tokenOverlap(job, resumeText) {
+    var jobTokens = tokens(jobText(job)), resumeTokens = {};
+    tokens(resumeText).forEach(function (t) { resumeTokens[t] = 1; });
+    var hits = jobTokens.filter(function (t) { return resumeTokens[t]; }).length;
+    var score = jobTokens.length ? Math.round((hits / jobTokens.length) * 100) : 0;
+    return { kind: 'overlap', score: score, hits: hits, total: jobTokens.length };
+  }
+
+  function cosine(a, b) {
+    var dot = 0, na = 0, nb = 0;
+    for (var i = 0; i < a.length; i++) { dot += a[i] * b[i]; na += a[i] * a[i]; nb += b[i] * b[i]; }
+    return na && nb ? dot / (Math.sqrt(na) * Math.sqrt(nb)) : 0;
+  }
+
+  // Embeds the resume and the job through the Worker (Workers AI, no key) and returns their cosine similarity.
+  function embeddingScore(job, resumeText) {
+    if (!API_BASE) return Promise.reject(new Error('opened as a local file'));
+    return getJson(API_BASE + '/embed', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ texts: [resumeText, jobText(job)] })
+    }).then(function (data) {
+      var v = data.vectors;
+      if (!Array.isArray(v) || v.length !== 2 || !Array.isArray(v[0]) || v[0].length !== v[1].length || !v[0].length) throw new Error('bad embedding response');
+      var c = cosine(v[0], v[1]);
+      if (!isFinite(c)) throw new Error('bad embedding values');
+      return { kind: 'cosine', value: c, score: Math.max(0, Math.min(100, Math.round(c * 100))), model: data.model };
+    });
+  }
+
+  function matchScore(job, resumeText) {
+    return embeddingScore(job, resumeText).catch(function (err) {
+      try { console.warn('Embeddings unavailable, using token overlap:', err); } catch (e) {}
+      return tokenOverlap(job, resumeText);
+    });
   }
 
   function cleanTitle(t) { return String(t).replace(/\(.*?\)|[-–|,].*$/g, '').trim() || String(t); }
@@ -395,7 +472,8 @@
       requirements: job.requirements || ['delivering results as a ' + cleanTitle(job.title)] };
     var matched = job.skills.filter(function (s) { return hasSkill(s, userSkills, resumeText); });
     var missing = job.skills.filter(function (s) { return matched.indexOf(s) === -1; });
-    var score = Math.min(98, Math.max(72, Math.round((matched.length / Math.max(1, job.skills.length)) * 60 + 35)));
+    // Skill-overlap idea from src/utils/aiSimulator.ts, without its 72-98 clamp. The shown score comes from matchScore().
+    var score = Math.round((matched.length / Math.max(1, job.skills.length)) * 100);
 
     var bulletLines = resumeText.split('\n').map(function (l) { return l.trim(); })
       .filter(function (l) { return /^[•\-\*]/.test(l); })
@@ -470,22 +548,26 @@
 
   // ---- Render ----
 
-  function render(r, source, reason, job) {
+  function render(r, source, reason, job, match) {
     var res = $('result');
     res.style.display = 'block';
     res.dataset.jobId = job.id;
     res.classList.remove('stale');
     var fj = $('forJob'); fj.textContent = 'Tailored for ';
     fj.appendChild(el('b', null, job.title + ' · ' + job.company));
-    $('score').textContent = r.score + '%';
+    $('score').textContent = match.score;
     $('scoreBar').style.width = '0';
-    requestAnimationFrame(function () { $('scoreBar').style.width = r.score + '%'; });
+    requestAnimationFrame(function () { $('scoreBar').style.width = match.score + '%'; });
+    // The label names exactly how the score was computed.
+    $('scoreKind').textContent = match.kind === 'cosine'
+      ? 'Score: cosine similarity ' + match.value.toFixed(3) + ' between embeddings of your resume and the job (' + match.model + '), × 100.'
+      : 'Score: token overlap. ' + match.hits + ' of ' + match.total + ' job keywords appear in your resume (embeddings unavailable).';
     var src = $('source');
     src.className = 'badge ' + (source === 'api' ? 'api' : 'local');
     src.textContent = source === 'api' ? 'Workers AI' : 'local fallback';
     $('sourceNote').textContent = source === 'api'
-      ? 'Generated by Llama 3.3 70B on Cloudflare Workers AI.'
-      : 'AI unavailable' + (reason ? ' (' + reason + ')' : '') + '. Showing the local skill-overlap simulator.';
+      ? 'Skills, bullets and cover letter by Llama 3.3 70B on Cloudflare Workers AI, from the resume text above.'
+      : 'AI unavailable' + (reason ? ' (' + reason + ')' : '') + '. Skills, bullets and cover letter were made locally from the resume text above.';
 
     [['matched', r.matched, 'good'], ['missing', r.missing, 'bad']].forEach(function (x) {
       var box = $(x[0]); box.textContent = '';
@@ -509,21 +591,48 @@
     if (text.length < 40) { setBusy(false, 'Paste a resume first (at least a few lines).'); return; }
     if (job.live && !job.description) { setBusy(false, 'Still loading the job description, try again in a moment.'); return; }
     setBusy(true, 'Tailoring with Workers AI…');
+    saveResume();
     var started = Date.now();
-    apiTailor(job, text).then(function (r) {
-      render(r, 'api', null, job);
-      setBusy(false, 'Done in ' + ((Date.now() - started) / 1000).toFixed(1) + 's');
-    }).catch(function (err) {
+    // Both calls use the current textarea text; the score comes from matchScore, the rest from the AI or the local fallback.
+    var tailored = apiTailor(job, text).then(function (r) { return { r: r, source: 'api' }; }, function (err) {
       var reason = err && err.name === 'AbortError' ? 'timeout' : (err && err.message) || 'network error';
       if (/failed to fetch|networkerror|load failed/i.test(reason)) reason = 'network error';
       try { console.warn('Workers AI call failed, using local fallback:', err); } catch (e) {}
-      render(localTailor(job, text), 'local', reason, job);
-      setBusy(false, 'Done (local fallback)');
+      return { r: localTailor(job, text), source: 'local', reason: reason };
+    });
+    Promise.all([tailored, matchScore(job, text)]).then(function (out) {
+      var t = out[0];
+      render(t.r, t.source, t.reason, job, out[1]);
+      saveResume();
+      setBusy(false, t.source === 'api' ? 'Done in ' + ((Date.now() - started) / 1000).toFixed(1) + 's' : 'Done (local fallback)');
+    }).catch(function (err) {
+      try { console.warn('Tailor failed:', err); } catch (e) {}
+      setBusy(false, 'Something went wrong. Please try again.');
     });
   });
 
   renderJobMeta();
-  $('reset').addEventListener('click', function () { resumeEl.value = SAMPLE_RESUME; setBusy(false, ''); });
+
+  $('saveResume').addEventListener('click', function () {
+    resumeNote(saveResume() ? 'Resume saved in this browser.' : 'Could not save (browser storage is blocked).');
+  });
+  $('clearResume').addEventListener('click', function () {
+    if (resumeEl.value.trim() && !window.confirm('Clear your resume? This also removes the copy saved in this browser.')) return;
+    resumeEl.value = '';
+    saveResume(); // an empty saved resume stays empty on refresh instead of bringing the sample back
+    resumeNote('Cleared. Paste your resume to start again.');
+    resumeEl.focus();
+  });
+  // Load sample runs only on click, and asks before replacing a saved resume.
+  $('reset').addEventListener('click', function () {
+    var current = resumeEl.value.trim();
+    if (current && current !== SAMPLE_RESUME.trim() &&
+        !window.confirm('Replace your resume with the sample? Your current text will be overwritten.')) return;
+    resumeEl.value = SAMPLE_RESUME;
+    saveResume();
+    resumeNote('Sample resume loaded.');
+    setBusy(false, '');
+  });
 })();
 </script>
 </body>

@@ -331,6 +331,34 @@ function checkMatches<T extends { matched: string[]; missing: string[] }>(r: T, 
   return { ...r, matched, missing, score: Math.min((r as any).score, overlapScore) };
 }
 
+// ---- Embeddings for the page's cosine-similarity score ----
+
+const EMBED_MODEL = '@cf/baai/bge-base-en-v1.5';
+
+// bge reads ~512 tokens per input, so split long texts into chunks and average the chunk vectors.
+function chunkText(text: string, size = 1500, max = 6): string[] {
+  const clean = text.replace(/\s+/g, ' ').trim();
+  const chunks: string[] = [];
+  for (let i = 0; i < clean.length && chunks.length < max; i += size) chunks.push(clean.slice(i, i + size));
+  return chunks.length ? chunks : [''];
+}
+
+// Returns one vector per input text (the mean of its chunk vectors). The page computes the cosine.
+async function embedTexts(env: Env, texts: string[]): Promise<number[][]> {
+  const chunked = texts.map((t) => chunkText(t));
+  const flat = chunked.flat();
+  const out: any = await env.AI.run(EMBED_MODEL, { text: flat });
+  const vecs: number[][] = out?.data;
+  if (!Array.isArray(vecs) || vecs.length !== flat.length) throw new Error('Unexpected embedding response');
+  let k = 0;
+  return chunked.map((chunks) => {
+    const dim = vecs[k].length;
+    const mean = new Array(dim).fill(0);
+    for (let c = 0; c < chunks.length; c++, k++) for (let d = 0; d < dim; d++) mean[d] += vecs[k][d] / chunks.length;
+    return mean;
+  });
+}
+
 // ---- Router ----
 
 function json(body: unknown, status = 200, extra: Record<string, string> = {}) {
@@ -367,6 +395,16 @@ export default {
       if (detail && req.method === 'GET') {
         const description = await cached(`desc:${detail[1]}`, 6 * 60 * 60 * 1000, () => fetchLinkedInDescription(detail[1]));
         return json({ description }, 200, cors);
+      }
+
+      if (url.pathname === '/api/embed' && req.method === 'POST') {
+        const body: any = await req.json().catch(() => null);
+        const texts = Array.isArray(body?.texts) ? body.texts : null;
+        if (!texts || texts.length !== 2 || texts.some((t: unknown) => typeof t !== 'string' || !t.trim())) {
+          return json({ error: 'Need texts: [resume, job]' }, 400, cors);
+        }
+        const vectors = await embedTexts(env, texts.map((t: string) => t.slice(0, 9000)));
+        return json({ model: EMBED_MODEL, vectors }, 200, cors);
       }
 
       if (url.pathname === '/api/tailor' && req.method === 'POST') {
