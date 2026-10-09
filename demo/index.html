@@ -1,0 +1,502 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Apply Agent Demo</title>
+<style>
+  :root {
+    --bg: #0b0d12; --panel: #141821; --panel-2: #1b2030; --line: #262c3d;
+    --text: #e7eaf2; --muted: #8b93a7; --accent: #7c9cff; --accent-2: #5b7cfa;
+    --good: #3ecf8e; --warn: #f5a524; --bad: #f2555a;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); }
+  body { font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; padding: 16px; }
+  .wrap { max-width: 980px; margin: 0 auto; }
+  header h1 { font-size: 22px; margin: 0 0 4px; letter-spacing: -0.01em; }
+  header p { margin: 0 0 16px; color: var(--muted); font-size: 14px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; min-width: 0; }
+  label { display: block; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 6px; }
+  select, textarea { width: 100%; background: var(--panel-2); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 10px; font: inherit; }
+  textarea { min-height: 260px; resize: vertical; font-size: 13px; line-height: 1.45; }
+  select:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .job-meta { margin: 10px 0 14px; font-size: 13px; color: var(--muted); }
+  .job-meta .chips { margin-top: 6px; }
+  .row { display: flex; gap: 10px; align-items: center; margin-top: 12px; flex-wrap: wrap; }
+  button { background: var(--accent-2); color: #fff; border: 0; border-radius: 8px; padding: 10px 18px; font: inherit; font-weight: 600; cursor: pointer; }
+  button:hover { background: var(--accent); }
+  button:disabled { opacity: .55; cursor: progress; }
+  button.ghost { background: transparent; border: 1px solid var(--line); color: var(--muted); font-weight: 500; }
+  button.ghost:hover { color: var(--text); background: var(--panel-2); }
+  .status { font-size: 13px; color: var(--muted); }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { font-size: 12px; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel-2); }
+  .chip.good { border-color: rgba(62,207,142,.4); color: var(--good); }
+  .chip.bad { border-color: rgba(242,85,90,.4); color: var(--bad); }
+  #result { margin-top: 16px; display: none; }
+  .score-row { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+  .score { font-size: 44px; font-weight: 700; line-height: 1; }
+  .bar { flex: 1; min-width: 160px; height: 8px; background: var(--panel-2); border-radius: 99px; overflow: hidden; }
+  .bar > i { display: block; height: 100%; background: linear-gradient(90deg, var(--accent-2), var(--good)); width: 0; transition: width .6s ease; }
+  .badge { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; padding: 3px 8px; border-radius: 6px; }
+  .badge.api { background: rgba(62,207,142,.15); color: var(--good); }
+  .badge.local { background: rgba(245,165,36,.15); color: var(--warn); }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 18px 0 8px; }
+  ol.bullets { margin: 0; padding-left: 20px; }
+  ol.bullets li { margin-bottom: 8px; }
+  .cover { white-space: pre-wrap; background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 12px; font-size: 14px; }
+  .note { font-size: 12px; color: var(--muted); margin-top: 8px; }
+  footer { margin: 20px 0 4px; font-size: 12px; color: var(--muted); text-align: center; }
+  footer a { color: var(--accent); }
+  input[type=text] { width: 100%; background: var(--panel-2); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 10px; font: inherit; }
+  input[type=text]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .search { margin-bottom: 16px; }
+  .search-row { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
+  .search-row .grow { flex: 1 1 200px; min-width: 0; }
+  .search .status { margin-top: 8px; }
+  .jobs { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 8px; margin-top: 10px; max-height: 340px; overflow-y: auto; }
+  .jobs:empty { display: none; }
+  .job-card { text-align: left; background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 10px; color: var(--text); font-weight: 400; cursor: pointer; min-width: 0; }
+  .job-card:hover { border-color: var(--accent); background: var(--panel-2); }
+  .job-card.active { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+  .job-card b { display: block; font-size: 14px; overflow-wrap: anywhere; }
+  .job-card span { display: block; font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+  .desc { max-height: 180px; overflow-y: auto; white-space: pre-wrap; font-size: 12px; color: var(--muted); background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 8px; margin-top: 8px; }
+  .job-meta a { color: var(--accent); }
+  .spin { display: inline-block; width: 12px; height: 12px; border: 2px solid var(--muted); border-top-color: transparent; border-radius: 50%; animation: s 0.8s linear infinite; vertical-align: -2px; margin-right: 6px; }
+  @keyframes s { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Apply Agent</h1>
+    <p>Search live jobs, paste a resume, and tailor it: match score, skill gaps, rewritten bullets, and a short cover letter.</p>
+  </header>
+
+  <form class="card search" id="searchForm">
+    <div class="search-row">
+      <div class="grow"><label for="q">Job title</label><input id="q" type="text" value="Data Analyst" autocomplete="off"></div>
+      <div class="grow"><label for="loc">Location (optional)</label><input id="loc" type="text" placeholder="e.g. Orlando, FL or Remote" autocomplete="off"></div>
+      <button id="searchBtn" type="submit">Search live jobs</button>
+    </div>
+    <div class="status" id="searchStatus" role="status" aria-live="polite"></div>
+    <div class="jobs" id="jobs"></div>
+  </form>
+
+  <div class="grid">
+    <div class="card">
+      <label for="job">Target role</label>
+      <select id="job"></select>
+      <div class="job-meta" id="jobMeta"></div>
+    </div>
+    <div class="card">
+      <label for="resume">Resume</label>
+      <textarea id="resume" spellcheck="false"></textarea>
+      <div class="row">
+        <button id="tailor" type="button">Tailor</button>
+        <button id="reset" type="button" class="ghost">Load sample</button>
+        <span class="status" id="status" role="status" aria-live="polite"></span>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" id="result">
+    <div class="score-row">
+      <div class="score" id="score">0</div>
+      <div class="bar"><i id="scoreBar"></i></div>
+      <span class="badge" id="source"></span>
+    </div>
+    <div class="note" id="sourceNote"></div>
+    <h2>Matched skills</h2>
+    <div class="chips" id="matched"></div>
+    <h2>Missing skills</h2>
+    <div class="chips" id="missing"></div>
+    <h2>Rewritten bullets</h2>
+    <ol class="bullets" id="bullets"></ol>
+    <h2>Cover letter</h2>
+    <div class="cover" id="cover"></div>
+  </div>
+
+  <footer>
+    Tailoring by <a href="https://developers.cloudflare.com/workers-ai/" target="_blank" rel="noopener">Cloudflare Workers AI</a>.
+    Jobs from LinkedIn's public listings, with <a href="https://remotive.com" target="_blank" rel="noopener">Remotive</a> and
+    <a href="https://www.themuse.com" target="_blank" rel="noopener">The Muse</a> as backups.
+    No API key is stored in this page. If the AI is unavailable, a local skill-overlap simulator runs instead.
+  </footer>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  // Sample roles, shaped like JobListing in src/types.ts. Companies are fictional.
+  var JOBS = [
+    {
+      id: 'ai-agent-eng', title: 'AI Agent Engineer', company: 'Northwind Labs', department: 'AI & ML',
+      location: 'Remote (US)', type: 'Remote',
+      requirements: ['Building LLM-powered agents with tool use and subagent orchestration', 'Shipping prototypes to production on a cloud platform', 'Explaining agent behavior to non-technical stakeholders'],
+      skills: ['AI Agentic Engineering', 'Python', 'Google Cloud Platform', 'Prompt Engineering', 'SQL', 'Communication']
+    },
+    {
+      id: 'hr-analytics', title: 'People Analytics Analyst', company: 'Brightline Health', department: 'Data Science',
+      location: 'Orlando, FL', type: 'Hybrid',
+      requirements: ['Owning HR dashboards end to end, from pipeline to KPI', 'Keeping confidential workforce data secure', 'Automating recurring reports'],
+      skills: ['Power BI', 'SQL', 'DAX', 'Power Automate', 'Data Storytelling', 'Excel']
+    },
+    {
+      id: 'data-eng', title: 'Data Engineer, Lakehouse', company: 'Cobalt Freight', department: 'Engineering',
+      location: 'Austin, TX', type: 'Full-time',
+      requirements: ['Migrating spreadsheet-based processes to a lakehouse', 'Writing reliable, tested SQL transformations', 'Monitoring data quality and match rates'],
+      skills: ['Azure Databricks', 'SQL', 'Python', 'Spark', 'Data Quality', 'Airflow']
+    },
+    {
+      id: 'ai-pm', title: 'Product Manager, AI Copilots', company: 'Lumen Workspace', department: 'Product',
+      location: 'Seattle, WA', type: 'Hybrid',
+      requirements: ['Defining copilot features from real user workflows', 'Running experiments and reading the metrics', 'Presenting roadmaps to leadership'],
+      skills: ['Microsoft Copilot', 'Strategy', 'Presentation Skills', 'Data Storytelling', 'A/B Testing', 'Roadmapping']
+    },
+    {
+      id: 'bi-dev', title: 'Business Intelligence Developer', company: 'Harbor Mutual', department: 'Data Science',
+      location: 'Charlotte, NC', type: 'Full-time',
+      requirements: ['Building executive Power BI reports', 'Modeling data with star schemas', 'Partnering with finance on KPI definitions'],
+      skills: ['Power BI', 'SQL', 'DAX', 'Data Modeling', 'Tableau', 'Stakeholder Management']
+    }
+  ];
+
+  // Sample resume adapted from src/data/mockJobs.ts, with contact details removed.
+  var SAMPLE_RESUME = [
+    'KEVIN PINARD',
+    'AI Agentic Engineer / HR Analytics Professional · Orlando, FL',
+    '',
+    'SKILLS',
+    'AI Agentic Engineering | Power BI | SQL | Google Antigravity CLI | Google AI Studio | Microsoft Copilot | Azure Databricks | Google Cloud Platform | Presentation Skills | Data Storytelling | Strategy and Strategic Problem-Solving | Communication | MS Power Automate | MS Office Suite',
+    '',
+    'EXPERIENCE',
+    'Orlando Health, Data Analyst, HR Analytics, 10/2023 – 03/2026',
+    '- Used Copilot to develop DAX code for Microsoft Power BI dashboards.',
+    '- Spearheaded initiative to automate manually-updated HR dashboards using Power Automate resulting in 37% productivity boost.',
+    '- Owned the full dashboard lifecycle for the Physician Recruitment team, from data pipelines and automated refreshes to KPI development.',
+    '- Led migration from Excel master files to Azure Databricks.',
+    '- Built a key-matching audit for SQL results and raised the manager-name match rate from 80% to 99.3%.',
+    '',
+    'Amazon, Logistics Associate, 10/2017 – 05/2019',
+    '- Led a Lean Six Sigma project on scan compliance; daily rate rose from 98.6% to over 99%.',
+    '',
+    'EDUCATION',
+    'Udacity, M.S., Artificial Intelligence, 03/2026 – present',
+    'Rollins College, B.A., Economics'
+  ].join('\n');
+
+  // Same-origin Worker API by default; ?api=http://localhost:8787/api points a local file at `wrangler dev`.
+  var API_BASE = (function () {
+    try { var p = new URLSearchParams(location.search).get('api'); if (p && /^https?:\/\//.test(p)) return p.replace(/\/$/, ''); } catch (e) {}
+    return /^https?:$/.test(location.protocol) ? '/api' : null;
+  })();
+  var TIMEOUT_MS = 28000;
+  var SOURCE_LABEL = { linkedin: 'LinkedIn', remotive: 'Remotive', themuse: 'The Muse' };
+
+  // Common skills to spot in live job descriptions, for the local fallback only (the model finds its own).
+  var SKILL_DICT = ['SQL', 'Python', 'Excel', 'Power BI', 'Tableau', 'Looker', 'DAX', 'Power Automate', 'Azure', 'Azure Databricks',
+    'Databricks', 'Snowflake', 'Spark', 'Airflow', 'dbt', 'AWS', 'Google Cloud Platform', 'GCP', 'BigQuery', 'ETL', 'Data Modeling',
+    'Data Visualization', 'Data Storytelling', 'Statistics', 'Machine Learning', 'Deep Learning', 'LLM', 'Generative AI', 'Prompt Engineering',
+    'AI Agents', 'Agentic', 'Copilot', 'JavaScript', 'TypeScript', 'React', 'Node.js', 'Java', 'C#', 'Golang', 'Kubernetes', 'Docker', 'Git',
+    'A/B Testing', 'Experimentation', 'Product Management', 'Roadmapping', 'Agile', 'Scrum', 'Jira', 'Stakeholder Management',
+    'Communication', 'Presentation Skills', 'Strategy', 'Project Management', 'Lean Six Sigma', 'Salesforce', 'Workday', 'HRIS',
+    'People Analytics', 'Financial Modeling', 'Forecasting', 'KPI', 'Dashboards', 'Automation', 'APIs'];
+
+  var $ = function (id) { return document.getElementById(id); };
+  var jobSel = $('job'), resumeEl = $('resume'), tailorBtn = $('tailor'), statusEl = $('status');
+  var liveJobs = {}; // id -> live job from the Worker
+  var liveOpt = null;
+
+  JOBS.forEach(function (j) {
+    var o = document.createElement('option');
+    o.value = j.id;
+    o.textContent = j.title + ' · ' + j.company + ' (sample)';
+    jobSel.appendChild(o);
+  });
+  resumeEl.value = SAMPLE_RESUME;
+
+  function currentJob() {
+    if (liveJobs[jobSel.value]) return liveJobs[jobSel.value];
+    for (var i = 0; i < JOBS.length; i++) if (JOBS[i].id === jobSel.value) return JOBS[i];
+    return JOBS[0];
+  }
+
+  function el(tag, cls, text) {
+    var e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text != null) e.textContent = text;
+    return e;
+  }
+
+  function link(href, text) {
+    var a = el('a', null, text);
+    a.href = href; a.target = '_blank'; a.rel = 'noopener';
+    return a;
+  }
+
+  function skillsInText(text) {
+    var t = ' ' + norm(text) + ' ';
+    return SKILL_DICT.filter(function (s) { return t.indexOf(' ' + norm(s) + ' ') !== -1; });
+  }
+
+  function renderJobMeta() {
+    var j = currentJob(), m = $('jobMeta');
+    m.textContent = '';
+    if (j.live) {
+      m.appendChild(el('div', null, j.company + ' · ' + j.location + ' · ' + j.postedAgo + ' · via ' + SOURCE_LABEL[j.source]));
+      var links = el('div');
+      links.appendChild(link(j.url, j.source === 'linkedin' ? 'View on LinkedIn' : 'Search on LinkedIn'));
+      if (j.sourceUrl) { links.appendChild(document.createTextNode(' · ')); links.appendChild(link(j.sourceUrl, 'View on ' + SOURCE_LABEL[j.source])); }
+      m.appendChild(links);
+      var found = skillsInText(j.description || '');
+      if (found.length) {
+        var c = el('div', 'chips');
+        found.slice(0, 12).forEach(function (s) { c.appendChild(el('span', 'chip', s)); });
+        m.appendChild(c);
+      }
+      m.appendChild(el('div', 'desc', j.description || 'Loading description…'));
+      return;
+    }
+    m.appendChild(el('div', null, j.department + ' · ' + j.location + ' · ' + j.type + ' · sample role'));
+    var chips = el('div', 'chips');
+    j.skills.forEach(function (s) { chips.appendChild(el('span', 'chip', s)); });
+    m.appendChild(chips);
+  }
+  jobSel.addEventListener('change', renderJobMeta);
+
+  // ---- Live job search via the Worker ----
+
+  function getJson(url, opts) {
+    var ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    var timer = setTimeout(function () { if (ctrl) ctrl.abort(); }, TIMEOUT_MS);
+    if (ctrl) { opts = opts || {}; opts.signal = ctrl.signal; }
+    return fetch(url, opts).then(function (res) {
+      return res.text().then(function (body) {
+        var data = null;
+        try { data = JSON.parse(body); } catch (e) {} // never surface parse errors to the user
+        if (!res.ok || !data || typeof data !== 'object') throw new Error((data && data.error) || ('HTTP ' + res.status));
+        return data;
+      });
+    }).finally(function () { clearTimeout(timer); });
+  }
+
+  function selectLiveJob(j, card) {
+    var prev = document.querySelector('.job-card.active');
+    if (prev) prev.classList.remove('active');
+    if (card) card.classList.add('active');
+    if (!liveOpt) { liveOpt = document.createElement('option'); jobSel.insertBefore(liveOpt, jobSel.firstChild); }
+    liveOpt.value = j.id;
+    liveOpt.textContent = j.title + ' · ' + j.company + ' (live)';
+    jobSel.value = j.id;
+    renderJobMeta();
+    if (!j.description && j.source === 'linkedin') {
+      getJson(API_BASE + '/job/' + encodeURIComponent(j.id)).then(function (d) {
+        j.description = String(d.description || '');
+      }).catch(function () {
+        j.description = j.title + ' at ' + j.company + '. (Full description unavailable; open the LinkedIn link to read it.)';
+      }).then(function () { if (jobSel.value === j.id) renderJobMeta(); });
+    }
+  }
+
+  $('searchForm').addEventListener('submit', function (ev) {
+    ev.preventDefault();
+    var q = $('q').value.trim(), loc = $('loc').value.trim(), st = $('searchStatus'), box = $('jobs');
+    if (!q) { st.textContent = 'Enter a job title.'; return; }
+    if (!API_BASE) { st.textContent = 'Live search runs on the deployed site. The sample roles below still work here.'; return; }
+    $('searchBtn').disabled = true;
+    st.textContent = ''; st.appendChild(el('span', 'spin')); st.appendChild(document.createTextNode('Searching live listings…'));
+    box.textContent = '';
+    getJson(API_BASE + '/jobs?q=' + encodeURIComponent(q) + (loc ? '&loc=' + encodeURIComponent(loc) : '')).then(function (data) {
+      var jobs = Array.isArray(data.jobs) ? data.jobs : [];
+      if (!jobs.length) { st.textContent = 'No live listings found. Try another title, or use a sample role below.'; return; }
+      st.textContent = jobs.length + ' live listings from ' + (data.source === 'linkedin' ? 'LinkedIn' : 'Remotive and The Muse (LinkedIn was unavailable)') + '. Pick one to tailor.';
+      jobs.forEach(function (j) {
+        j.live = true;
+        liveJobs[j.id] = j;
+        var card = el('button', 'job-card');
+        card.type = 'button';
+        card.appendChild(el('b', null, j.title));
+        card.appendChild(el('span', null, j.company + ' · ' + j.location));
+        card.appendChild(el('span', null, j.postedAgo + ' · ' + SOURCE_LABEL[j.source]));
+        card.addEventListener('click', function () { selectLiveJob(j, card); });
+        box.appendChild(card);
+      });
+    }).catch(function () {
+      st.textContent = 'Live search is unavailable right now. The sample roles below still work.';
+    }).then(function () { $('searchBtn').disabled = false; });
+  });
+
+  // ---- Local fallback: same skill-overlap idea and weights as src/utils/aiSimulator.ts ----
+
+  function norm(s) { return String(s).toLowerCase().replace(/^ms\s+/, '').replace(/[^a-z0-9+#/& ]+/g, ' ').replace(/\s+/g, ' ').trim(); }
+
+  function extractResumeSkills(text) {
+    // Pull the SKILLS line(s) if present; separators are | , ; or bullets.
+    var lines = text.split('\n'), out = [], inSkills = false;
+    for (var i = 0; i < lines.length; i++) {
+      var l = lines[i].trim();
+      if (/^skills\b/i.test(l)) { inSkills = true; l = l.replace(/^skills[:\s]*/i, ''); }
+      else if (inSkills && (/^[A-Z][A-Z &]{3,}$/.test(l) || l === '')) { if (out.length) inSkills = false; continue; }
+      if (inSkills && l) l.split(/[|,;•·]/).forEach(function (s) { s = s.replace(/\(.*?\)/g, '').trim(); if (s) out.push(s); });
+    }
+    return out;
+  }
+
+  function hasSkill(jobSkill, userSkills, resumeText) {
+    var js = norm(jobSkill);
+    var hit = userSkills.some(function (u) { var us = norm(u); return us && (us.indexOf(js) !== -1 || js.indexOf(us) !== -1); });
+    // Pasted resumes may not have a clean SKILLS section, so also scan the full text.
+    return hit || norm(resumeText).indexOf(js) !== -1;
+  }
+
+  // Live jobs have only a description, so build a skills list from it (dictionary hits plus resume skills it mentions).
+  function jobSkills(job, userSkills) {
+    if (!job.live) return job.skills;
+    var desc = norm(job.description || '');
+    var fromResume = userSkills.filter(function (u) { var n = norm(u); return n.length > 2 && desc.indexOf(n) !== -1; });
+    var all = skillsInText(job.description || '').concat(fromResume), out = [];
+    all.forEach(function (s) { if (!out.some(function (o) { return norm(o) === norm(s); })) out.push(s); });
+    return out.length ? out.slice(0, 10) : [cleanTitle(job.title)];
+  }
+
+  function cleanTitle(t) { return String(t).replace(/\(.*?\)|[-–|,].*$/g, '').trim() || String(t); }
+
+  function localTailor(job, resumeText) {
+    var userSkills = extractResumeSkills(resumeText);
+    job = { title: job.title, company: job.company, skills: jobSkills(job, userSkills),
+      requirements: job.requirements || ['delivering results as a ' + cleanTitle(job.title)] };
+    var matched = job.skills.filter(function (s) { return hasSkill(s, userSkills, resumeText); });
+    var missing = job.skills.filter(function (s) { return matched.indexOf(s) === -1; });
+    var score = Math.min(98, Math.max(72, Math.round((matched.length / Math.max(1, job.skills.length)) * 60 + 35)));
+
+    var bulletLines = resumeText.split('\n').map(function (l) { return l.trim(); })
+      .filter(function (l) { return /^[•\-\*]/.test(l); })
+      .map(function (l) { return l.replace(/^[•\-\*\s]+/, ''); })
+      .filter(function (l) { return l.length > 12; });
+    if (!bulletLines.length) {
+      bulletLines = resumeText.split('\n').map(function (l) { return l.trim(); })
+        .filter(function (l) { return l.length > 40 && !/^(professional|skills|education|summary)/i.test(l); });
+    }
+    var originals = bulletLines.slice(0, 3);
+    var defaults = [
+      'Delivered core platform features with cross-functional product teams.',
+      'Optimized reporting workflows to support growing user metrics.',
+      'Translated stakeholder requirements into measurable technical outcomes.'
+    ];
+    while (originals.length < 3) originals.push(defaults[originals.length]);
+
+    var bullets = originals.map(function (orig, idx) {
+      var target = matched[idx % Math.max(1, matched.length)] || job.skills[0] || 'analytical workflows';
+      var b = orig.replace(/\.\s*$/, '');
+      // Bullets that already open with a past-tense verb keep it; others get one.
+      if (!/^\w+ed\b|^(led|built|ran|drove|won|made|grew|wrote|took|cut)\b/i.test(b)) {
+        b = 'Delivered ' + b.charAt(0).toLowerCase() + b.slice(1);
+      }
+      if (!/\d+(\.\d+)?%/.test(b)) {
+        return b + ', applying ' + target + ' to raise output quality and reporting efficiency.';
+      }
+      return b + ', the kind of ' + target + ' impact this role calls for.';
+    });
+
+    var nameLine = (resumeText.split('\n').map(function (l) { return l.trim(); }).filter(Boolean)[0] || 'Applicant');
+    var name = nameLine.length < 40 ? nameLine.replace(/\b\w+/g, function (w) { return w.charAt(0).toUpperCase() + w.slice(1).toLowerCase(); }) : 'Applicant';
+    var strengths = (matched.length ? matched : userSkills).slice(0, 3).join(', ') || 'data and analytics';
+    var cover = 'Dear Hiring Manager at ' + job.company + ',\n\n' +
+      'I am excited to apply for the ' + job.title + ' role. My experience with ' + strengths +
+      ' maps directly to your focus on ' + job.requirements[0].charAt(0).toLowerCase() + job.requirements[0].slice(1) + '. ' +
+      'Most recently, I ' + originals[0].replace(/\.\s*$/, '').replace(/^\w/, function (c) { return c.toLowerCase(); }) + '.\n\n' +
+      (missing.length ? 'I am actively building depth in ' + missing.slice(0, 2).join(' and ') + ' and ramp quickly on new tools. ' : '') +
+      'I would welcome the chance to discuss how I can contribute to ' + job.company.replace(/\.$/, '') + '.\n\nBest regards,\n' + name;
+
+    return { score: score, matched: matched, missing: missing, bullets: bullets, cover: cover };
+  }
+
+  // ---- Workers AI path (through the Worker; the page never holds a key) ----
+
+  function strList(v) { return Array.isArray(v) ? v.filter(function (x) { return typeof x === 'string' && x.trim(); }).map(function (x) { return x.trim(); }) : null; }
+
+  function validate(r) {
+    if (!r || typeof r !== 'object') return null;
+    var score = Number(r.score);
+    var matched = strList(r.matched), missing = strList(r.missing), bullets = strList(r.bullets);
+    if (!isFinite(score) || !matched || !missing || !bullets || bullets.length < 1 || typeof r.cover !== 'string' || !r.cover.trim()) return null;
+    return { score: Math.max(0, Math.min(100, Math.round(score))), matched: matched, missing: missing, bullets: bullets.slice(0, 3), cover: r.cover.trim() };
+  }
+
+  function apiTailor(job, resumeText) {
+    if (!API_BASE) return Promise.reject(new Error('opened as a local file'));
+    var payload = job.live
+      ? { title: job.title, company: job.company, description: job.description || '' }
+      : { title: job.title, company: job.company, skills: job.skills, description: 'Requirements:\n- ' + job.requirements.join('\n- ') };
+    return getJson(API_BASE + '/tailor', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ job: payload, resume: resumeText })
+    }).then(function (data) {
+      var result = validate(data);
+      if (!result) throw new Error('response was not the expected JSON');
+      return result;
+    });
+  }
+
+  // ---- Render ----
+
+  function render(r, source, reason) {
+    $('result').style.display = 'block';
+    $('score').textContent = r.score + '%';
+    $('scoreBar').style.width = '0';
+    requestAnimationFrame(function () { $('scoreBar').style.width = r.score + '%'; });
+    var src = $('source');
+    src.className = 'badge ' + (source === 'api' ? 'api' : 'local');
+    src.textContent = source === 'api' ? 'Workers AI' : 'local fallback';
+    $('sourceNote').textContent = source === 'api'
+      ? 'Generated by Llama 3.1 on Cloudflare Workers AI.'
+      : 'AI unavailable' + (reason ? ' (' + reason + ')' : '') + '. Showing the local skill-overlap simulator.';
+
+    [['matched', r.matched, 'good'], ['missing', r.missing, 'bad']].forEach(function (x) {
+      var box = $(x[0]); box.textContent = '';
+      if (!x[1].length) box.appendChild(el('span', 'chip', 'None'));
+      x[1].forEach(function (s) { box.appendChild(el('span', 'chip ' + x[2], s)); });
+    });
+    var ol = $('bullets'); ol.textContent = '';
+    r.bullets.forEach(function (b) { ol.appendChild(el('li', null, b)); });
+    $('cover').textContent = r.cover;
+  }
+
+  function setBusy(busy, msg) {
+    tailorBtn.disabled = busy;
+    statusEl.textContent = '';
+    if (busy) statusEl.appendChild(el('span', 'spin'));
+    if (msg) statusEl.appendChild(document.createTextNode(msg));
+  }
+
+  tailorBtn.addEventListener('click', function () {
+    var job = currentJob(), text = resumeEl.value.trim();
+    if (text.length < 40) { setBusy(false, 'Paste a resume first (at least a few lines).'); return; }
+    if (job.live && !job.description) { setBusy(false, 'Still loading the job description, try again in a moment.'); return; }
+    setBusy(true, 'Tailoring with Workers AI…');
+    var started = Date.now();
+    apiTailor(job, text).then(function (r) {
+      render(r, 'api');
+      setBusy(false, 'Done in ' + ((Date.now() - started) / 1000).toFixed(1) + 's');
+    }).catch(function (err) {
+      var reason = err && err.name === 'AbortError' ? 'timeout' : (err && err.message) || 'network error';
+      if (/failed to fetch|networkerror|load failed/i.test(reason)) reason = 'network error';
+      try { console.warn('Workers AI call failed, using local fallback:', err); } catch (e) {}
+      render(localTailor(job, text), 'local', reason);
+      setBusy(false, 'Done (local fallback)');
+    });
+  });
+
+  renderJobMeta();
+  $('reset').addEventListener('click', function () { resumeEl.value = SAMPLE_RESUME; setBusy(false, ''); });
+})();
+</script>
+</body>
+</html>

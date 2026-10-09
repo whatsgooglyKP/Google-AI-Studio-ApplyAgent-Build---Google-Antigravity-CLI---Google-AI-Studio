@@ -1,0 +1,22 @@
+name = "apply-agent"
+main = "src/index.ts"
+compatibility_date = "2026-09-01"
+
+# The page and the API share one origin, so the Squarespace iframe just points at this Worker.
+[assets]
+directory = "../demo"
+binding = "ASSETS"
+run_worker_first = ["/api/*"]
+
+# Workers AI through a binding: no API key exists anywhere.
+[ai]
+binding = "AI"
+
+# Per-visitor cap so one person can't burn the free daily AI allowance.
+[[ratelimits]]
+name = "TAILOR_LIMIT"
+namespace_id = "1001"
+
+  [ratelimits.simple]
+  limit = 6
+  period = 60
