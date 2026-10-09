@@ -19,7 +19,7 @@ interface Job {
   description?: string;
 }
 
-const MODEL = '@cf/meta/llama-3.1-8b-instruct-fast';
+const MODEL = '@cf/meta/llama-3.3-70b-instruct-fp8-fast';
 const ALLOWED_ORIGINS = [/^https:\/\/(www\.)?kevinpinard\.studio$/, /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/];
 const BROWSER_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -271,12 +271,18 @@ function validateTailor(r: any) {
 
 async function tailor(env: Env, job: any, resume: string) {
   const system =
-    'You are a resume tailoring assistant. Respond with one JSON object only, no markdown. ' +
+    'You are a careful resume tailoring assistant. Respond with one JSON object only, no markdown. ' +
     'Schema: {"score": integer 0-100, "matched": string[], "missing": string[], "bullets": string[3], "cover": string}. ' +
-    'First identify the 6-8 most important skills the job asks for. "matched" lists those the resume shows, "missing" lists the rest. ' +
+    'Step 1: list the 6-8 most important skills the job asks for, each as a short skill name of 1-4 words ' +
+    '(e.g. "Python", "PyTorch", "Computer Vision", "SQL"), never a sentence. ' +
+    'Step 2: put a skill in "matched" only if the resume text explicitly mentions it or an obvious equivalent; otherwise put it in "missing". ' +
     '"score" reflects how well the resume fits the job. These are entry-level and internship roles, so weigh skills, projects and ' +
-    'coursework rather than years of experience. "bullets" are exactly three resume bullets rewritten from the resume for this job, ' +
-    'each under 35 words, never inventing employers, titles, or numbers. "cover" is a cover letter under 140 words signed with the name at the top of the resume.';
+    'coursework rather than years of experience. ' +
+    '"bullets" are exactly three bullets taken from the resume and reworded to emphasize what this job values, each under 35 words. ' +
+    '"cover" is a 100-140 word cover letter in three short paragraphs, naming the company and role, built on 2-3 specific ' +
+    'achievements from the resume and how they transfer to this job, signed with the name at the top of the resume. ' +
+    'Never claim a skill, tool, degree, employer, title, or number the resume does not contain, in the bullets or the cover letter. ' +
+    'In the cover letter, mention missing skills only as things the candidate is eager to learn.';
   const skills = Array.isArray(job.skills) && job.skills.length ? `\nListed skills: ${job.skills.join(', ')}` : '';
   const user =
     `JOB\nTitle: ${String(job.title || '').slice(0, 200)}\nCompany: ${String(job.company || '').slice(0, 200)}${skills}\n` +
@@ -296,7 +302,23 @@ async function tailor(env: Env, job: any, resume: string) {
   }
   const result = validateTailor(parseJsonLoose(out?.response));
   if (!result) throw new Error('Model reply was not the expected JSON');
-  return result;
+  return checkMatches(result, resume);
+}
+
+// Small models over-claim, so keep a "matched" skill only if its words actually appear in the resume.
+function checkMatches<T extends { matched: string[]; missing: string[] }>(r: T, resume: string): T {
+  const text = ` ${resume.toLowerCase().replace(/[^a-z0-9+#]+/g, ' ')} `;
+  const shown = (skill: string) => {
+    const words = skill.toLowerCase().replace(/[^a-z0-9+#]+/g, ' ').trim().split(' ').filter((w) => w.length > 1 && !['and', 'or', 'of', 'the', 'with'].includes(w));
+    return words.length > 0 && words.every((w) => text.includes(` ${w} `) || text.includes(` ${w}s `));
+  };
+  const short = (s: string) => s.split(/\s+/).length <= 5;
+  const matched = r.matched.filter((s) => short(s) && shown(s));
+  const moved = r.matched.filter((s) => short(s) && !shown(s));
+  const missing = [...r.missing.filter(short), ...moved].filter((s, i, a) => a.indexOf(s) === i);
+  // Cap the model's score with the skill-overlap formula from src/utils/aiSimulator.ts (without its 72 floor).
+  const overlapScore = Math.round((matched.length / Math.max(1, matched.length + missing.length)) * 60 + 35);
+  return { ...r, matched, missing, score: Math.min((r as any).score, overlapScore) };
 }
 
 // ---- Router ----
@@ -340,8 +362,9 @@ export default {
       if (url.pathname === '/api/tailor' && req.method === 'POST') {
         if (env.TAILOR_LIMIT) {
           const ip = req.headers.get('CF-Connecting-IP') || 'unknown';
-          const { success } = await env.TAILOR_LIMIT.limit({ key: ip });
-          if (!success) return json({ error: 'Too many requests, try again in a minute' }, 429, cors);
+          // Fail open: a limiter error (seen in local dev) shouldn't block tailoring.
+          const allowed = await env.TAILOR_LIMIT.limit({ key: ip }).then((r) => r.success, (e) => (console.warn('Rate limiter error:', e), true));
+          if (!allowed) return json({ error: 'Too many requests, try again in a minute' }, 429, cors);
         }
         const body: any = await req.json().catch(() => null);
         const resume = String(body?.resume || '').trim().slice(0, 8000);
