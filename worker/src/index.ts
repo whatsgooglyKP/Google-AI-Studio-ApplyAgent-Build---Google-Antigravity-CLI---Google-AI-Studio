@@ -87,30 +87,39 @@ const isUsLocation = (loc: string) =>
 
 // ---- LinkedIn guest endpoint (same parsing as fetchRealLinkedInGuestJobs in server.ts) ----
 
+// After LinkedIn rate-limits us (429), leave it alone for a while instead of retrying on every search.
+let linkedInPausedUntil = 0;
+const LINKEDIN_BACKOFF_MS = 10 * 60 * 1000;
+
 async function fetchLinkedInJobs(topic: string, location: string): Promise<Job[]> {
+  if (Date.now() < linkedInPausedUntil) throw new Error('LinkedIn paused after rate limit');
   const jobs: Job[] = [];
-  // Each page has about 10 cards; after dropping senior titles, read up to 3 pages to fill the list.
-  for (const start of [0, 10, 20]) {
+  // Each page has about 10 cards; after dropping senior titles, read up to 5 pages to fill the list.
+  for (const start of [0, 10, 20, 30, 40]) {
     const params = new URLSearchParams({ keywords: topic, location, f_E: '1,2', start: String(start) }); // f_E 1=Internship, 2=Entry level
     const res = await fetch(`https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?${params}`, {
       headers: BROWSER_HEADERS,
       redirect: 'manual', // a redirect here means a login wall
     });
     if (!res.ok) {
+      if (res.status === 429) linkedInPausedUntil = Date.now() + LINKEDIN_BACKOFF_MS;
       if (start === 0) throw new Error(`LinkedIn HTTP ${res.status}`);
-      break;
+      break; // keep the pages already read
     }
-    const before = jobs.length;
-    parseLinkedInCards(await res.text(), jobs);
-    if (jobs.length >= 15 || jobs.length === before) break;
+    // Stop when LinkedIn has no more cards, not when a page's cards were all filtered out as senior.
+    const cards = parseLinkedInCards(await res.text(), jobs);
+    if (jobs.length >= 15 || cards === 0) break;
   }
   return jobs;
 }
 
-function parseLinkedInCards(html: string, jobs: Job[]) {
+// Adds entry-level cards to `jobs` and returns how many cards the page had in total.
+function parseLinkedInCards(html: string, jobs: Job[]): number {
   const cardRegex = /<li[^>]*>([\s\S]*?)<\/li>/gi;
   let m: RegExpExecArray | null;
+  let cards = 0;
   while ((m = cardRegex.exec(html)) !== null && jobs.length < 25) {
+    cards++;
     const card = m[1];
     const id = (card.match(/data-entity-urn="urn:li:jobPosting:(\d+)"/i) || card.match(/\/jobs\/view\/[^"?]*?-(\d{8,12})/i))?.[1] || '';
     const title = stripTags(card.match(/<h3[^>]*base-search-card__title[^>]*>([\s\S]*?)<\/h3>/i)?.[1] || '');
@@ -130,6 +139,7 @@ function parseLinkedInCards(html: string, jobs: Job[]) {
       source: 'linkedin',
     });
   }
+  return cards;
 }
 
 async function fetchLinkedInDescription(numericId: string): Promise<string> {
