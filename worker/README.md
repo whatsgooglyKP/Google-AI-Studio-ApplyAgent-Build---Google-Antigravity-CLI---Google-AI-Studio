@@ -12,12 +12,12 @@ This Worker serves `../demo/index.html` and three small endpoints:
 
 The search is limited to **internship and entry-level roles in the United States**:
 
-- The page offers four roles: Software Engineer, Software Developer, AI/ML Intern and Machine Learning Intern. "All four roles" runs all of them and merges the results.
+- The page offers four roles: Software Engineer, Software Developer, AI/ML Intern and Machine Learning Intern. Each search covers one role.
 - Location defaults to `United States`. You can narrow it to a state or city.
 - LinkedIn is queried with its experience filter `f_E=1,2` (Internship, Entry level). Titles containing senior, staff, lead, principal, manager, II, III or levels 2–5 are dropped, because LinkedIn's filter lets some through.
 - The Muse is queried at its Entry Level and Internship levels, in the Software Engineering and Data Science categories, and kept only for US locations. Remotive results are kept only when open to US applicants.
 
-To change the roles, edit `ROLE_TITLES` in `demo/index.html`. To change the seniority rules, edit `SENIOR_TITLE` in `src/index.ts`.
+To change the roles, edit the `<select id="q">` options in `demo/index.html`. To change the seniority rules, edit `SENIOR_TITLE` in `src/index.ts`.
 
 ## Keys
 

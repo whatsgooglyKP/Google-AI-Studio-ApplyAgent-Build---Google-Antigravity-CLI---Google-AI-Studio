@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Apply Agent Demo</title>
+<title>Entry-Level Tech Apply Agent</title>
 <style>
   :root {
     --bg: #0b0d12; --panel: #141821; --panel-2: #1b2030; --line: #262c3d;
@@ -14,7 +14,8 @@
   html, body { margin: 0; background: var(--bg); color: var(--text); }
   body { font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; padding: 16px; }
   .wrap { max-width: 980px; margin: 0 auto; }
-  header h1 { font-size: 22px; margin: 0 0 4px; letter-spacing: -0.01em; }
+  .eyebrow { display: inline-block; font-size: 12px; font-weight: 600; letter-spacing: .04em; color: var(--accent); background: rgba(124,156,255,.12); border: 1px solid rgba(124,156,255,.3); border-radius: 999px; padding: 3px 10px; margin-bottom: 8px; }
+  header h1 { font-size: 24px; margin: 0 0 6px; letter-spacing: -0.01em; }
   header p { margin: 0 0 16px; color: var(--muted); font-size: 14px; }
   .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
   @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } }
@@ -76,15 +77,16 @@
 <body>
 <div class="wrap">
   <header>
-    <h1>Apply Agent</h1>
-    <p>Find entry-level and internship roles across the United States, paste a resume, and tailor it: match score, skill gaps, rewritten bullets, and a short cover letter.</p>
+    <div class="eyebrow">For entry-level tech roles · Internships &amp; new grads · United States</div>
+    <h1>Apply Agent: Entry-Level Tech</h1>
+    <p>Starting your tech career? Search live internship and entry-level software and AI/ML jobs across the US,
+      then tailor your resume to one: match score, skill gaps, rewritten bullets, and a short cover letter.</p>
   </header>
 
   <form class="card search" id="searchForm">
     <div class="search-row">
-      <div class="grow"><label for="q">Role</label>
+      <div class="grow"><label for="q">Entry-level role</label>
         <select id="q">
-          <option value="all">All four roles</option>
           <option>Software Engineer</option>
           <option>Software Developer</option>
           <option>AI/ML Intern</option>
@@ -92,21 +94,21 @@
         </select>
       </div>
       <div class="grow"><label for="loc">Location</label><input id="loc" type="text" value="United States" placeholder="United States, or a state or city" autocomplete="off"></div>
-      <button id="searchBtn" type="submit">Search live jobs</button>
+      <button id="searchBtn" type="submit">Search entry-level jobs</button>
     </div>
-    <div class="note">Internship and entry-level only. Senior, staff, lead and level II+ titles are filtered out.</div>
+    <div class="note">Only internships and entry-level jobs are shown. Senior, staff, lead, manager and level II+ titles are filtered out.</div>
     <div class="status" id="searchStatus" role="status" aria-live="polite"></div>
     <div class="jobs" id="jobs"></div>
   </form>
 
   <div class="grid">
     <div class="card">
-      <label for="job">Target role</label>
+      <label for="job">Job to tailor for</label>
       <select id="job"></select>
       <div class="job-meta" id="jobMeta"></div>
     </div>
     <div class="card">
-      <label for="resume">Resume</label>
+      <label for="resume">Your resume</label>
       <textarea id="resume" spellcheck="false"></textarea>
       <div class="row">
         <button id="tailor" type="button">Tailor</button>
@@ -145,8 +147,6 @@
 <script>
 (function () {
   'use strict';
-
-  var ROLE_TITLES = ['Software Engineer', 'Software Developer', 'AI/ML Intern', 'Machine Learning Intern'];
 
   // Offline sample roles (entry-level, US), shaped like JobListing in src/types.ts. Companies are fictional.
   var JOBS = [
@@ -331,22 +331,13 @@
     ev.preventDefault();
     var q = $('q').value, loc = $('loc').value.trim() || 'United States', st = $('searchStatus'), box = $('jobs');
     if (!API_BASE) { st.textContent = 'Live search runs on the deployed site. The sample roles below still work here.'; return; }
-    var titles = q === 'all' ? ROLE_TITLES : [q];
     $('searchBtn').disabled = true;
-    st.textContent = ''; st.appendChild(el('span', 'spin')); st.appendChild(document.createTextNode('Searching live listings…'));
+    st.textContent = ''; st.appendChild(el('span', 'spin')); st.appendChild(document.createTextNode('Searching entry-level ' + q + ' jobs…'));
     box.textContent = '';
-    // One request per title; "All four roles" merges them, newest LinkedIn order kept within each title.
-    Promise.all(titles.map(function (t) {
-      return getJson(API_BASE + '/jobs?q=' + encodeURIComponent(t) + '&loc=' + encodeURIComponent(loc)).catch(function () { return null; });
-    })).then(function (results) {
-      var ok = results.filter(Boolean);
-      if (!ok.length) throw new Error('all searches failed');
-      var jobs = [], seen = {}, fromLinkedIn = ok.some(function (r) { return r.source === 'linkedin'; });
-      ok.forEach(function (r) {
-        (Array.isArray(r.jobs) ? r.jobs : []).forEach(function (j) { if (!seen[j.id]) { seen[j.id] = 1; jobs.push(j); } });
-      });
-      if (!jobs.length) { st.textContent = 'No entry-level listings found for that location. Try "United States" or a sample role below.'; return; }
-      st.textContent = jobs.length + ' entry-level listings from ' + (fromLinkedIn ? 'LinkedIn' : 'Remotive and The Muse (LinkedIn was unavailable)') + '. Pick one to tailor.';
+    getJson(API_BASE + '/jobs?q=' + encodeURIComponent(q) + '&loc=' + encodeURIComponent(loc)).then(function (data) {
+      var jobs = Array.isArray(data.jobs) ? data.jobs : [];
+      if (!jobs.length) { st.textContent = 'No entry-level ' + q + ' jobs found for that location. Try "United States" or a sample role below.'; return; }
+      st.textContent = jobs.length + ' entry-level ' + q + ' jobs from ' + (data.source === 'linkedin' ? 'LinkedIn' : 'Remotive and The Muse (LinkedIn was unavailable)') + '. Pick one to tailor.';
       jobs.forEach(function (j) {
         j.live = true;
         liveJobs[j.id] = j;
